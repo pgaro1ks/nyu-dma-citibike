@@ -1,0 +1,12 @@
+data/raw/*.zip
+data/raw/*.csv
+data/processed/*.parquet
+data/processed/*.csv
+data/live/*.json
+*.pyc
+__pycache__/
+.DS_Store
+*.xlsx
+!excel/README.md
+.env
+venv/
