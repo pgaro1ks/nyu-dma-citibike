@@ -10,7 +10,10 @@ EXCEL_DIR = PROJECT_ROOT / "excel"
 for d in [DATA_RAW, DATA_PROCESSED, DATA_LIVE, FIGURES_DIR, EXCEL_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-TRIP_MONTHS = ["202409", "202410", "202411"]
+TRIP_MONTHS = [
+    "202504", "202505", "202506", "202507", "202508", "202509",
+    "202510", "202511", "202512", "202601", "202602", "202503",
+]
 
 TRIP_BASE_URL = "https://s3.amazonaws.com/tripdata"
 TRIP_FILE_TEMPLATE = "{month}-citibike-tripdata.zip"

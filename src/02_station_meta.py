@@ -85,6 +85,10 @@ def main():
 
     merged = study_df.merge(status_df, on="station_id", how="left")
 
+    merged = merged.rename(columns={"station_id": "station_uuid"})
+    merged = merged.rename(columns={"short_name": "station_id"})
+    merged = merged.dropna(subset=["station_id"])
+
     merged.to_parquet(DATA_PROCESSED / "stations_study_area.parquet", index=False)
     merged.to_csv(DATA_PROCESSED / "stations_study_area.csv", index=False)
 

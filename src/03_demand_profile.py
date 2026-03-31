@@ -29,69 +29,34 @@ def load_study_stations() -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def load_trips() -> pd.DataFrame:
-    csv_files = sorted(DATA_RAW.glob("*.csv"))
-    csv_files = [f for f in csv_files if not f.name.startswith("JC-")]
-
-    if not csv_files:
-        print("[error] No trip CSVs found. Run 01_download_trips.py first")
-        sys.exit(1)
-
-    print(f"[load] {len(csv_files)} trip CSV file(s)")
-    frames = []
-    for f in csv_files:
-        print(f"  Reading {f.name}...")
-        df = pd.read_csv(
-            f,
-            usecols=[
-                "started_at",
-                "ended_at",
-                "start_station_id",
-                "end_station_id",
-                "start_lat",
-                "start_lng",
-                "end_lat",
-                "end_lng",
-                "rideable_type",
-                "member_casual",
-            ],
-            parse_dates=["started_at", "ended_at"],
-            dtype={"start_station_id": str, "end_station_id": str},
-        )
-        frames.append(df)
-        print(f"    {len(df):,} trips")
-
-    trips = pd.concat(frames, ignore_index=True)
-    print(f"[total] {len(trips):,} trips loaded")
-    return trips
-
-
-def filter_study_area_trips(trips: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
-    study_ids = set(stations["station_id"].values)
-
-    mask = (
-        trips["start_station_id"].isin(study_ids)
-        | trips["end_station_id"].isin(study_ids)
+def process_csv_to_flows(csv_path, study_ids):
+    df = pd.read_csv(
+        csv_path,
+        usecols=[
+            "started_at",
+            "ended_at",
+            "start_station_id",
+            "end_station_id",
+            "rideable_type",
+            "member_casual",
+        ],
+        parse_dates=["started_at", "ended_at"],
+        dtype={"start_station_id": str, "end_station_id": str},
     )
-    filtered = trips[mask].copy()
-    print(f"[filter] {len(filtered):,} trips touch study area ({len(trips):,} total)")
-    return filtered
 
+    dep_mask = df["start_station_id"].isin(study_ids)
+    arr_mask = df["end_station_id"].isin(study_ids)
+    study_trips = dep_mask.sum() + arr_mask.sum()
 
-def compute_hourly_flows(trips: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
-    study_ids = set(stations["station_id"].values)
-
-    departures = trips[trips["start_station_id"].isin(study_ids)].copy()
+    departures = df[dep_mask].copy()
     departures["station_id"] = departures["start_station_id"]
     departures["hour"] = departures["started_at"].dt.hour
     departures["date"] = departures["started_at"].dt.date
-    departures["flow_type"] = "departure"
 
-    arrivals = trips[trips["end_station_id"].isin(study_ids)].copy()
+    arrivals = df[arr_mask].copy()
     arrivals["station_id"] = arrivals["end_station_id"]
     arrivals["hour"] = arrivals["ended_at"].dt.hour
     arrivals["date"] = arrivals["ended_at"].dt.date
-    arrivals["flow_type"] = "arrival"
 
     dep_counts = (
         departures.groupby(["station_id", "date", "hour"])
@@ -107,13 +72,46 @@ def compute_hourly_flows(trips: pd.DataFrame, stations: pd.DataFrame) -> pd.Data
     flows = dep_counts.merge(
         arr_counts, on=["station_id", "date", "hour"], how="outer"
     ).fillna(0)
-
     flows["departures"] = flows["departures"].astype(int)
     flows["arrivals"] = flows["arrivals"].astype(int)
     flows["net_flow"] = flows["arrivals"] - flows["departures"]
 
-    print(f"[flows] {len(flows):,} station-date-hour records")
-    return flows
+    return flows, len(df), study_trips
+
+
+def load_and_aggregate_flows(study_ids):
+    csv_files = sorted(DATA_RAW.glob("*.csv"))
+    csv_files = [f for f in csv_files if not f.name.startswith("JC-")]
+    csv_files = [f for f in csv_files if any(m in f.name for m in TRIP_MONTHS)]
+
+    if not csv_files:
+        print("[error] No trip CSVs found. Run 01_download_trips.py first")
+        sys.exit(1)
+
+    print(f"[load] {len(csv_files)} trip CSV file(s) — processing incrementally")
+    all_flows = []
+    total_trips = 0
+    total_study = 0
+
+    for f in csv_files:
+        print(f"  Processing {f.name}...", end=" ", flush=True)
+        flows, n_trips, n_study = process_csv_to_flows(f, study_ids)
+        all_flows.append(flows)
+        total_trips += n_trips
+        total_study += n_study
+        print(f"{n_trips:,} trips, {n_study:,} in study area")
+
+    combined = pd.concat(all_flows, ignore_index=True)
+    combined = (
+        combined.groupby(["station_id", "date", "hour"])
+        .agg(departures=("departures", "sum"), arrivals=("arrivals", "sum"))
+        .reset_index()
+    )
+    combined["net_flow"] = combined["arrivals"] - combined["departures"]
+
+    print(f"[total] {total_trips:,} trips loaded, {total_study:,} touch study area")
+    print(f"[flows] {len(combined):,} station-date-hour records")
+    return combined, total_trips
 
 
 def fit_demand_distributions(flows: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
@@ -152,6 +150,8 @@ def fit_demand_distributions(flows: pd.DataFrame, stations: pd.DataFrame) -> pd.
         how="left",
     )
 
+    station_stats = station_stats.dropna(subset=["name"])
+
     station_stats["departure_rate_per_hour"] = station_stats["mean_departures"] / (
         peak_end - peak_start
     )
@@ -182,7 +182,7 @@ def fit_demand_distributions(flows: pd.DataFrame, stations: pd.DataFrame) -> pd.
 
 def plot_system_overview(flows: pd.DataFrame, station_stats: pd.DataFrame) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle("Citi Bike Study Area — Demand Profile (Sep–Nov 2024)", fontsize=14, fontweight="bold")
+    fig.suptitle("Citi Bike Study Area — Demand Profile (12-Month, Apr 2025 – Mar 2026)", fontsize=14, fontweight="bold")
 
     hourly = flows.groupby("hour").agg(
         departures=("departures", "mean"),
@@ -250,16 +250,22 @@ def plot_station_distributions(station_stats: pd.DataFrame, flows: pd.DataFrame)
         ]
         daily_deps = station_morning.groupby("date")["departures"].sum()
 
+        if len(daily_deps) < 2:
+            ax.set_title(f"{row['name'][:30]} (no data)", fontsize=10)
+            continue
+
         ax.hist(daily_deps, bins=20, density=True, alpha=0.6, color="#378ADD", edgecolor="white")
 
         mu = daily_deps.mean()
         sigma = daily_deps.std()
-        x = np.linspace(daily_deps.min(), daily_deps.max(), 100)
-        ax.plot(x, stats.norm.pdf(x, mu, sigma), "r-", linewidth=2, label=f"N({mu:.1f}, {sigma:.1f})")
+        if sigma > 0:
+            x = np.linspace(daily_deps.min(), daily_deps.max(), 100)
+            ax.plot(x, stats.norm.pdf(x, mu, sigma), "r-", linewidth=2, label=f"N({mu:.1f}, {sigma:.1f})")
 
         lam = mu
-        x_pois = np.arange(0, int(daily_deps.max()) + 5)
-        ax.plot(x_pois, stats.poisson.pmf(x_pois, lam), "g--", linewidth=1.5, label=f"Pois({lam:.1f})")
+        if lam > 0:
+            x_pois = np.arange(0, int(daily_deps.max()) + 5)
+            ax.plot(x_pois, stats.poisson.pmf(x_pois, lam), "g--", linewidth=1.5, label=f"Pois({lam:.1f})")
 
         ax.set_title(row["name"][:30], fontsize=10)
         ax.legend(fontsize=7)
@@ -273,10 +279,9 @@ def plot_station_distributions(station_stats: pd.DataFrame, flows: pd.DataFrame)
 
 def main():
     stations = load_study_stations()
-    trips = load_trips()
-    trips = filter_study_area_trips(trips, stations)
+    study_ids = set(stations["station_id"].values)
 
-    flows = compute_hourly_flows(trips, stations)
+    flows, total_trips = load_and_aggregate_flows(study_ids)
     flows.to_parquet(DATA_PROCESSED / "hourly_flows.parquet", index=False)
 
     station_stats = fit_demand_distributions(flows, stations)
@@ -291,8 +296,8 @@ def main():
     print("=" * 60)
     print(f"Study area: {STUDY_AREA['name']}")
     print(f"Stations: {len(station_stats)}")
-    print(f"Trip months: {', '.join(TRIP_MONTHS)}")
-    print(f"Total study-area trips: {len(trips):,}")
+    print(f"Trip months: {len(TRIP_MONTHS)} months")
+    print(f"Total trips processed: {total_trips:,}")
     print(f"Net suppliers: {(station_stats['station_type'] == 'net_supplier').sum()}")
     print(f"Net receivers: {(station_stats['station_type'] == 'net_receiver').sum()}")
     print(f"Balanced: {(station_stats['station_type'] == 'balanced').sum()}")
