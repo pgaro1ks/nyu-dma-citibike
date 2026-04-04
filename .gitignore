@@ -4,6 +4,7 @@ data/processed/*.parquet
 data/processed/*.csv
 data/live/*.json
 *.pyc
+*.pptx
 __pycache__/
 .DS_Store
 *.xlsx
