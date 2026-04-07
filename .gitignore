@@ -5,6 +5,10 @@ data/processed/*.csv
 data/live/*.json
 *.pyc
 *.pptx
+*.md
+*.tmp
+*.jpg
+*.pdf
 __pycache__/
 .DS_Store
 *.xlsx

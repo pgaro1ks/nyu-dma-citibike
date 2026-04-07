@@ -112,7 +112,7 @@ LEASE = {
     "insurance_monthly_usd": 350,
 }
 
-BUY = {
+BUY_NEW = {
     "down_payment_pct": 0.20,
     "loan_apr": 0.065,
     "loan_term_months": 60,
@@ -120,6 +120,21 @@ BUY = {
     "salvage_value_pct": 0.15,
     "annual_maintenance_usd": 4500,
     "annual_insurance_usd": 4200,
+}
+
+BUY_USED = {
+    "price_pct_of_msrp": 0.55,
+    "typical_mileage": 75000,
+    "typical_year": 2021,
+    "remaining_life_miles": 225000,
+    "down_payment_pct": 0.20,
+    "loan_apr": 0.075,
+    "loan_term_months": 48,
+    "depreciation_years": 5,
+    "salvage_value_pct": 0.10,
+    "annual_maintenance_usd": 3200,
+    "annual_insurance_usd": 3600,
+    "maintenance_cost_per_mile": 0.08,
 }
 
 OPERATING = {
@@ -216,34 +231,62 @@ def compute_vehicle_cost_per_night(truck_key, method="lease"):
         total_monthly = monthly + LEASE["insurance_monthly_usd"]
         nightly = total_monthly / 30
         return {
-            "method": "lease",
+            "method": "Full-Service Lease",
+            "purchase_price": 0,
             "monthly_lease": monthly,
             "monthly_insurance": LEASE["insurance_monthly_usd"],
             "total_monthly": total_monthly,
+            "annual_total": round(total_monthly * 12, 2),
             "nightly_vehicle_cost": round(nightly, 2),
         }
-    else:
+    elif method == "buy_new":
+        b = BUY_NEW
         msrp = truck["msrp_usd"]
-        down = msrp * BUY["down_payment_pct"]
+        down = msrp * b["down_payment_pct"]
         financed = msrp - down
-        r = BUY["loan_apr"] / 12
-        n = BUY["loan_term_months"]
+        r = b["loan_apr"] / 12
+        n = b["loan_term_months"]
         monthly_payment = financed * (r * (1 + r)**n) / ((1 + r)**n - 1)
-
-        annual_depreciation = (msrp * (1 - BUY["salvage_value_pct"])) / BUY["depreciation_years"]
-        annual_total = (monthly_payment * 12) + BUY["annual_maintenance_usd"] + BUY["annual_insurance_usd"]
+        annual_total = (monthly_payment * 12) + b["annual_maintenance_usd"] + b["annual_insurance_usd"]
         nightly = annual_total / 365
-
         return {
-            "method": "buy",
-            "msrp": msrp,
+            "method": "Buy New",
+            "purchase_price": msrp,
             "down_payment": round(down, 2),
             "monthly_loan_payment": round(monthly_payment, 2),
-            "annual_maintenance": BUY["annual_maintenance_usd"],
-            "annual_insurance": BUY["annual_insurance_usd"],
+            "loan_apr": b["loan_apr"],
+            "loan_term_months": b["loan_term_months"],
+            "annual_maintenance": b["annual_maintenance_usd"],
+            "annual_insurance": b["annual_insurance_usd"],
             "annual_total": round(annual_total, 2),
             "nightly_vehicle_cost": round(nightly, 2),
         }
+    elif method == "buy_used":
+        b = BUY_USED
+        price = round(truck["msrp_usd"] * b["price_pct_of_msrp"])
+        down = price * b["down_payment_pct"]
+        financed = price - down
+        r = b["loan_apr"] / 12
+        n = b["loan_term_months"]
+        monthly_payment = financed * (r * (1 + r)**n) / ((1 + r)**n - 1)
+        annual_total = (monthly_payment * 12) + b["annual_maintenance_usd"] + b["annual_insurance_usd"]
+        nightly = annual_total / 365
+        return {
+            "method": f"Buy Used (~{b['typical_year']}, ~{b['typical_mileage']//1000}K mi)",
+            "purchase_price": price,
+            "down_payment": round(down, 2),
+            "monthly_loan_payment": round(monthly_payment, 2),
+            "loan_apr": b["loan_apr"],
+            "loan_term_months": b["loan_term_months"],
+            "annual_maintenance": b["annual_maintenance_usd"],
+            "annual_insurance": b["annual_insurance_usd"],
+            "annual_total": round(annual_total, 2),
+            "nightly_vehicle_cost": round(nightly, 2),
+            "remaining_life_miles": b["remaining_life_miles"],
+            "maint_per_mile": b["maintenance_cost_per_mile"],
+        }
+    else:
+        raise ValueError(f"Unknown method: {method}")
 
 
 def compute_route_cost(truck_key, route_miles, n_stops, method="lease"):
@@ -375,34 +418,53 @@ def run_full_analysis():
     print(f"  LABOR PER TRUCK/NIGHT:   ${labor['cost_per_truck_per_shift']:.2f}")
     print(f"    (= ${labor['loaded_hourly']:.2f}/hr x {labor['shift_hours']}hr x {labor['workers_per_truck']} workers)")
 
-    print("\n--- STEP 5: Vehicle Cost (Lease vs. Buy) ---")
-    lease = compute_vehicle_cost_per_night(best_truck, "lease")
-    buy = compute_vehicle_cost_per_night(best_truck, "buy")
-    print(f"  LEASE (full-service, {LEASE['lease_term_months']}-month term):")
-    print(f"    Monthly lease:    ${lease['monthly_lease']:,}")
-    print(f"    Monthly insurance:${lease['monthly_insurance']}")
-    print(f"    Total monthly:    ${lease['total_monthly']:,}")
-    print(f"    Nightly:          ${lease['nightly_vehicle_cost']:.2f}")
-    print(f"    (Includes maintenance, source: Penske/Ryder commercial rates)")
-    print(f"  BUY (financed):")
-    print(f"    MSRP:             ${buy['msrp']:,}")
-    print(f"    Down payment:     ${buy['down_payment']:,.2f} ({BUY['down_payment_pct']:.0%})")
-    print(f"    Monthly payment:  ${buy['monthly_loan_payment']:,.2f} ({BUY['loan_apr']:.1%} APR, {BUY['loan_term_months']}mo)")
-    print(f"    Annual maint:     ${buy['annual_maintenance']:,}")
-    print(f"    Annual insurance: ${buy['annual_insurance']:,}")
-    print(f"    Nightly:          ${buy['nightly_vehicle_cost']:.2f}")
-    winner = "lease" if lease["nightly_vehicle_cost"] < buy["nightly_vehicle_cost"] else "buy"
-    print(f"  >> {winner.upper()} is cheaper by ${abs(lease['nightly_vehicle_cost'] - buy['nightly_vehicle_cost']):.2f}/night")
+    print("\n--- STEP 5: Vehicle Cost (Lease vs. Buy New vs. Buy Used) ---")
+    methods = ["lease", "buy_new", "buy_used"]
+    vehicle_results = {}
+    for m in methods:
+        v = compute_vehicle_cost_per_night(best_truck, m)
+        vehicle_results[m] = v
+        print(f"\n  {v['method'].upper()}:")
+        if m == "lease":
+            print(f"    Monthly lease:    ${v['monthly_lease']:,}")
+            print(f"    Monthly insurance:${v['monthly_insurance']}")
+            print(f"    Total monthly:    ${v['total_monthly']:,}")
+            print(f"    Source: Penske/Ryder commercial 36-month full-service rates")
+        else:
+            print(f"    Purchase price:   ${v['purchase_price']:,}")
+            print(f"    Down payment:     ${v['down_payment']:,.2f} ({BUY_USED['down_payment_pct'] if 'used' in m else BUY_NEW['down_payment_pct']:.0%})")
+            print(f"    Monthly payment:  ${v['monthly_loan_payment']:,.2f} ({v['loan_apr']:.1%} APR, {v['loan_term_months']}mo)")
+            print(f"    Annual maint:     ${v['annual_maintenance']:,}")
+            print(f"    Annual insurance: ${v['annual_insurance']:,}")
+            if "remaining_life_miles" in v:
+                est_years = v["remaining_life_miles"] / 6500
+                print(f"    Remaining life:   ~{v['remaining_life_miles']:,} mi (~{est_years:.0f} yrs at 6,500 mi/yr)")
+                print(f"    Maint per mile:   ${v['maint_per_mile']:.2f} (TMC fleet data: $0.06-$0.09)")
+        print(f"    Annual total:     ${v['annual_total']:,.2f}")
+        print(f"    NIGHTLY:          ${v['nightly_vehicle_cost']:.2f}")
 
-    print("\n--- STEP 6: Fleet Cost Sweep (1-8 trucks, lease) ---")
+    cheapest = min(vehicle_results.items(), key=lambda x: x[1]["nightly_vehicle_cost"])
+    priciest = max(vehicle_results.items(), key=lambda x: x[1]["nightly_vehicle_cost"])
+    print(f"\n  >> CHEAPEST: {cheapest[1]['method']} at ${cheapest[1]['nightly_vehicle_cost']:.2f}/night")
+    print(f"     Saves ${priciest[1]['nightly_vehicle_cost'] - cheapest[1]['nightly_vehicle_cost']:.2f}/night vs {priciest[1]['method']}")
+
+    print("\n  --- Truck Comparison (all used, buy) ---")
+    for key in TRUCK_CANDIDATES:
+        cap = compute_bike_capacity(key)
+        v = compute_vehicle_cost_per_night(key, "buy_used")
+        print(f"    {TRUCK_CANDIDATES[key]['name']:25s} | {cap['actual_capacity']} bikes | ${v['purchase_price']:,} used | ${v['nightly_vehicle_cost']:.2f}/night | {TRUCK_CANDIDATES[key]['mpg_city_loaded']} mpg")
+
+    best_method = cheapest[0]
+
+    print(f"\n--- STEP 6: Fleet Cost Sweep (1-8 trucks, {best_method}) ---")
     fleet_results = []
     for n in range(1, 9):
-        fc = compute_fleet_cost(n, best_truck, "lease")
+        fc = compute_fleet_cost(n, best_truck, best_method)
         fleet_results.append(fc)
         print(f"  {n} truck(s): ${fc['total_nightly_cost']:,.2f}/night | {fc['total_bikes_moved']} bikes | ${fc['cost_per_bike_moved']:.2f}/bike | {fc['total_route_miles']:.0f} mi")
 
-    print("\n--- STEP 7: Cost Breakdown (4 trucks, lease) ---")
-    fc4 = compute_fleet_cost(4, best_truck, "lease")
+    print(f"\n--- STEP 7: Cost Breakdown (4 trucks, {best_method}) ---")
+    fc4 = compute_fleet_cost(4, best_truck, best_method)
     total = fc4["total_nightly_cost"]
     print(f"  Fuel:    ${fc4['fuel_cost']:>8,.2f}  ({fc4['fuel_cost']/total*100:.1f}%)")
     print(f"  Labor:   ${fc4['labor_cost']:>8,.2f}  ({fc4['labor_cost']/total*100:.1f}%)")

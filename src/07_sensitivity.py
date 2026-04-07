@@ -121,7 +121,7 @@ def run_parameter_sensitivity(stations, targets, opt_sweep):
 
     sensitivities = {}
 
-    cap_values = [15, 20, 25, 30]
+    cap_values = [30, 40, 48, 55, 60]
     cap_results = []
     for cap in cap_values:
         bikes_avail = base_n_trucks * cap
@@ -149,7 +149,7 @@ def run_parameter_sensitivity(stations, targets, opt_sweep):
         cap_results.append({"truck_capacity": cap, "cost": adjusted_cost, "service_level": np.mean(sls)})
     sensitivities["truck_capacity"] = pd.DataFrame(cap_results)
 
-    wage_values = [25, 30, 35, 40, 45]
+    wage_values = [60, 70, 82, 90, 100]  # 2-worker crew loaded hourly rate
     wage_results = []
     for wage in wage_values:
         adjusted_cost = (
@@ -240,12 +240,12 @@ def plot_tornado(sensitivities, base_cost):
     cap_df = sensitivities["truck_capacity"]
     low_cap = cap_df["cost"].min()
     high_cap = cap_df["cost"].max()
-    bars.append(("Truck Capacity\n(15–30 bikes)", low_cap, high_cap))
+    bars.append(("Truck Capacity\n(30–60 bikes)", low_cap, high_cap))
 
     wage_df = sensitivities["driver_wage"]
     low_wage = wage_df["cost"].min()
     high_wage = wage_df["cost"].max()
-    bars.append(("Driver Wage\n($25–$45/hr)", low_wage, high_wage))
+    bars.append(("Crew Wage\n($60–$100/hr)", low_wage, high_wage))
 
     fuel_df = sensitivities["fuel_cost"]
     low_fuel = fuel_df["cost"].min()

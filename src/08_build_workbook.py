@@ -83,7 +83,7 @@ def build_summary_sheet(wb):
     summary_items = [
         ("Study Area", f"='Cost Model'!B3"),
         ("Stations Analyzed", "=COUNTA('Station Data'!A3:A200)"),
-        ("Trip Months", "Sep–Nov 2024"),
+        ("Trip Months", "Apr 2025 – Mar 2026 (12 months)"),
         ("Morning Peak", "7:00–9:00 AM"),
         ("Recommended Trucks", "=Sensitivity!B4"),
         ("Optimal Service Level", "=Sensitivity!D4"),
@@ -111,11 +111,11 @@ def build_summary_sheet(wb):
     ws["A16"].font = Font(bold=True, name="Arial", size=12, color="1F4E79")
 
     findings = [
-        "1. Deploying 3 trucks yields ~78% service level at positive net benefit.",
-        "2. Each additional truck beyond 3 shows diminishing marginal returns.",
-        "3. The efficient frontier crossover (cost > benefit) occurs around 4 trucks.",
-        "4. Driver wages and truck capacity are the two most sensitive cost drivers.",
-        "5. Even 1 truck reduces the $4,000+/day opportunity cost of no rebalancing.",
+        "1. Cost of inaction: ~$13.50/failed trip ($4.73 revenue + $3.61 USDOT VOT + $5.17 churn risk).",
+        "2. Operational cost: ~$2,088/night for 4 trucks (Isuzu NPR-HD 18', 48 bikes, buy used).",
+        "3. Net benefit: ~$10K/day — rebalancing pays for itself many times over.",
+        "4. Labor dominates at ~89% of operational costs; crew wage is the most sensitive driver.",
+        "5. 12-month dataset (44.6M trips) captures seasonal variation across the full year.",
     ]
     for i, f in enumerate(findings):
         ws.cell(row=18 + i, column=1, value=f).font = DATA_FONT
@@ -424,7 +424,7 @@ def build_simulation_sheet(wb):
     ws["A8"].fill = SUBHEADER_FILL
 
     assumptions = [
-        ("Morning Demand (per station)", "Poisson(λ) or Normal(μ,σ)", "Fitted from 91 days of data"),
+        ("Morning Demand (per station)", "Poisson(λ) or Normal(μ,σ)", "Fitted from 12 months of data"),
         ("Weather Factor", "Discrete: 1.0 (65%), 0.85 (15%), 0.6 (10%), 1.1 (10%)", "Historical weather pattern"),
         ("Day Type", "Bernoulli: Weekday 71.4%, Weekend 28.6%", "Calendar distribution"),
     ]
@@ -585,6 +585,8 @@ def build_figures_sheet(wb):
         ("05_simulation_results.png", "Monte Carlo Simulation Results"),
         ("06_efficient_frontier.png", "Efficient Frontier"),
         ("07_sensitivity_tornado.png", "Sensitivity Tornado"),
+        ("08_cost_of_inaction.png", "Cost of Inaction Analysis"),
+        ("09_operational_costs.png", "Operational Cost Analysis"),
     ]
 
     row = 3
